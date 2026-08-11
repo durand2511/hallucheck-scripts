@@ -401,6 +401,15 @@ for i, row in enumerate(rows):
     if _degenerate and _degenerate.start() > 30:
         answer = answer[:_degenerate.start()].rstrip()
 
+    # Opschonen: het model sluit soms na het echte antwoord nog een structuur-gewoonte af
+    # (een los blok-sluitteken, een markdown-scheiding, het begin van een nieuwe kop) zonder
+    # dat daar nog inhoud bij komt. Knip elke losse staartregel weg die alleen uit
+    # leestekens/markup bestaat (geen letters of cijfers) -- puur structureel, niet inhoudelijk.
+    _tail_symbols = _re.search(r"\n\s*[^\w\s]{1,10}\s*$", answer)
+    while _tail_symbols and _tail_symbols.start() > 30:
+        answer = answer[:_tail_symbols.start()].rstrip()
+        _tail_symbols = _re.search(r"\n\s*[^\w\s]{1,10}\s*$", answer)
+
     results.append({"idx": IDX_LIST[i], "question": q, "document": doc, "extraction": extraction, "answer": answer})
     print(f"  {i+1}/{len(rows)} gegenereerd  ({time.time()-t0:.0f}s)", flush=True)
 
