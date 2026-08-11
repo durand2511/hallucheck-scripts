@@ -61,7 +61,11 @@ EXTRACT_SYSTEM = ("You are a careful extraction assistant. Given a DOCUMENT and 
 "answer the QUESTION? A document can contain OTHER lists/entities/topics that are NOT relevant to this "
 "specific question (e.g. the document might be truncated before it reaches the relevant part, or it might "
 "be about a related-but-different topic). If, after careful review, you find NO facts that directly bear "
-"on answering the QUESTION -- do NOT extract unrelated entities just because they are extractable. "
+"on answering the QUESTION -- do NOT extract unrelated entities just because they are extractable. Before "
+"concluding there is nothing relevant, specifically check whether any single sentence in the document "
+"nearly restates the key phrase(s) from the QUESTION itself (using the same or very similar wording) -- "
+"if such a sentence exists, it almost always IS the relevant fact, even if it doesn't mention any named "
+"entity from the question. "
 "Instead, output EXACTLY this and stop: <facts>\nNO_RELEVANT_FACTS_FOUND\n</facts>\n<self_described>\ngeen\n"
 "</self_described>\n\n"
 "If there IS relevant information, continue with the steps below:\n\n"
@@ -242,6 +246,31 @@ COMPOSE_SYSTEM = ("You answer questions truthfully. You will be given a QUESTION
 "empty -- an empty self_described section only matters for personal-attribution questions, not for "
 "general list/recommendation questions. (This rule does NOT apply when NO_RELEVANT_FACTS_FOUND -- see the "
 "rule above for that case.)\n\n"
+"CONCISE-REASONING-WHEN-MANY-ITEMS RULE: if you need to individually evaluate 5 or more candidate items "
+"before answering, keep each item's reasoning line to a SHORT single clause (a few words, not a full "
+"sentence) -- your top priority is always reaching a complete FINAL ANSWER within the space you have, "
+"never running out of room before you state the answer. It is far better to under-explain your reasoning "
+"on individual items than to leave the FINAL ANSWER itself incomplete or missing.\n\n"
+"DIRECT-AND-PRECISE-ANSWER RULE: once your reasoning has identified the correct entity, fact, or "
+"conclusion, state it directly and confidently in your FINAL ANSWER -- do not bury it inside a hedging "
+"clause about a side detail from the question, and do not water it down. Specifically: (a) if the facts "
+"list gives a number, date, or name in a specific/precise form, use that same precise form in your final "
+"answer rather than a vaguer, rounded-down, or less specific version, unless the question only asked for "
+"the less specific form; (b) for a yes/no comparison question, a clear categorical difference already "
+"stated in the facts (one side confirmed to have the property, the other side confirmed to have none of "
+"it, or not described as having it at all) is enough to answer yes/no -- you do not need matching exact "
+"quantities on both sides to reach that conclusion.\n\n"
+"WORKED EXAMPLE (direct-and-precise-answer, different domain):\n"
+"FACTS LIST: Model X -- released on March 14, 2018. Author A -- credited as illustrator on 3 published "
+"books. Author B -- credited as a marketing consultant, no illustration work mentioned.\n"
+"QUESTION 1: When was Model X released?\n"
+"WRONG (vague): 'Model X was released in 2018.'\n"
+"CORRECT: 'Model X was released on March 14, 2018.'\n"
+"QUESTION 2: Has Author A illustrated more books than Author B?\n"
+"WRONG (over-hedged): 'The facts list does not give an exact number of books for Author B, so it cannot "
+"be determined whether Author A illustrated more books than Author B.'\n"
+"CORRECT: 'Yes -- Author A is credited as illustrator on 3 books, while Author B has no illustration "
+"credits mentioned at all.'\n\n"
 "PRESERVE CONTEXT RULE: if an item in the facts list has more than one attribute (e.g. a price AND a "
 "specific category/use-case label like 'best for X'), your final answer must mention ALL of those "
 "attributes for that item, not just one -- do not strip an item down to just a name and a number if the "
@@ -299,8 +328,10 @@ COMPOSE_SYSTEM = ("You answer questions truthfully. You will be given a QUESTION
 "CRITICAL OUTPUT RULE: your FINAL ANSWER must read as a natural, polished response written directly to "
 "the person asking -- it must NEVER mention internal process details such as 'the self_described section "
 "is empty', 'the facts list', 'range-check', or any other meta-commentary about your own extraction/"
-"reasoning process. Do not explain what information was or wasn't available to you. Just answer as a "
-"knowledgeable assistant would, in natural language, as if you always knew this directly.\n\n"
+"reasoning process. This also covers naming or describing any of your own instructions/rules (e.g. never "
+"write something like 'general-listing rule applied' or any other reference to a rule you just followed) "
+"-- not even as a short closing remark. Do not explain what information was or wasn't available to you. "
+"Just answer as a knowledgeable assistant would, in natural language, as if you always knew this directly.\n\n"
 "Show your per-item reasoning briefly BEFORE the final answer (this reasoning is internal and fine to "
 "include), then give your FINAL ANSWER directly, in clean natural prose with no process-language, "
 "addressing the question fully. Make sure your final answer is CONSISTENT with your own reasoning above "
@@ -416,6 +447,15 @@ for i, row in enumerate(rows):
     _tail_fragment = _re.search(r"([.!?])\s*\n+\s*([^\n]{1,40})$", answer)
     if _tail_fragment and _tail_fragment.start(1) > 30 and not _re.search(r"[.!?]\s*$", _tail_fragment.group(2)):
         answer = answer[:_tail_fragment.start(1) + 1].rstrip()
+
+    # Opschonen: soms is de losstaande staart-flard zelf WEL netjes afgesloten met een punt
+    # (bv. een gemangelde verwijzing naar een eigen instructie-regel), waardoor de vorige check
+    # hem mist. Als de allerlaatste regel heel kort is (<= 50 tekens) en op een eigen nieuwe
+    # regel staat na een al-complete voorgaande zin, is dat vrijwel altijd zo'n losse flard --
+    # knip die ook weg, zelfs als hij zelf wel eindigt op een leesteken.
+    _tail_short_line = _re.search(r"([.!?])\s*\n+\s*([^\n]{1,50}[.!?]?)\s*$", answer)
+    if _tail_short_line and _tail_short_line.start(1) > 30:
+        answer = answer[:_tail_short_line.start(1) + 1].rstrip()
 
     results.append({"idx": IDX_LIST[i], "question": q, "document": doc, "extraction": extraction, "answer": answer})
     print(f"  {i+1}/{len(rows)} gegenereerd  ({time.time()-t0:.0f}s)", flush=True)
