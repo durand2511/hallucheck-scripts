@@ -410,6 +410,13 @@ for i, row in enumerate(rows):
         answer = answer[:_tail_symbols.start()].rstrip()
         _tail_symbols = _re.search(r"\n\s*[^\w\s]{1,10}\s*$", answer)
 
+    # Opschonen: soms komt er na een compleet, correct afgesloten antwoord (eindigend op
+    # . ! of ?) nog een korte, LOSSTAANDE flard tekst op een nieuwe regel (een los woord, een
+    # nep-functieaanroep, etc.) die zelf niet als een eigen zin afsluit -- knip die flard weg.
+    _tail_fragment = _re.search(r"([.!?])\s*\n+\s*([^\n]{1,40})$", answer)
+    if _tail_fragment and _tail_fragment.start(1) > 30 and not _re.search(r"[.!?]\s*$", _tail_fragment.group(2)):
+        answer = answer[:_tail_fragment.start(1) + 1].rstrip()
+
     results.append({"idx": IDX_LIST[i], "question": q, "document": doc, "extraction": extraction, "answer": answer})
     print(f"  {i+1}/{len(rows)} gegenereerd  ({time.time()-t0:.0f}s)", flush=True)
 
