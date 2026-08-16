@@ -385,42 +385,6 @@ COMPOSE_SYSTEM = ("You answer questions truthfully. You will be given a QUESTION
 "the facts list. This is most likely an error in how the question chained the two ordinal facts together, "
 "not a sign that 'Midnight Harvest' is the wrong film.\n"
 "CORRECT: 'Midnight Harvest' was released in 2009.'\n\n"
-"MOST-SPECIFIC-CATEGORY-FIRST RULE: sometimes a document lists several eligibility/classification "
-"categories, where a more GENERIC category (with an easy-to-satisfy threshold) sits alongside a more "
-"SPECIFIC category that explicitly names the exact situation described in the question (e.g. a specific "
-"role, membership type, or circumstance), with a harder-to-satisfy threshold. When the question's "
-"situation is described using terminology that closely matches the SPECIFIC category's own wording, use "
-"that specific category to judge eligibility -- do not fall back to a more generic category just because "
-"its threshold happens to also be satisfied. A category that names your exact situation always takes "
-"precedence over a broader category that merely doesn't exclude it.\n\n"
-"WORKED EXAMPLE (most-specific-category-first, different domain):\n"
-"FACTS LIST: General Members -- eligible for the loyalty discount after 90 days of any membership. "
-"Trial-Program Participants -- individuals enrolled only in the free trial program are eligible for the "
-"loyalty discount after completing 2 full years in the trial program.\n"
-"QUESTION: Maria has been in the free 30-day trial program for 6 months. Is she eligible for the loyalty "
-"discount?\n"
-"WRONG (wrong category applied): 'Yes, 6 months exceeds the 90-day requirement for General Members, so "
-"Maria qualifies.'\n"
-"CORRECT: 'No -- Maria is specifically a Trial-Program Participant, and that category requires 2 full "
-"years, not the General Members' 90 days. She has only completed 6 months, so she does not yet qualify.'\n\n"
-"DOCUMENT-SCOPE-MATCH RULE: before applying any rule from the facts list, check whether the document's "
-"OWN STATED SCOPE (the specific product, program, or situation type it explicitly says it covers) actually "
-"matches what the QUESTION is asking about -- not just whether individual keywords overlap. A document can "
-"mention a keyword (e.g. a general product category) while its actual rules only apply to one narrow "
-"variant of that product (e.g. a specific specialized program), leaving a different variant (e.g. the "
-"ordinary/standard version) completely uncovered. If the question is about a variant/situation the "
-"document's stated scope does not cover, say so honestly -- do not apply the narrow rules as if they were "
-"general just because a keyword matched.\n\n"
-"WORKED EXAMPLE (document-scope-match, different domain):\n"
-"FACTS LIST: Eligible Property Types for the Senior Equity-Release Program -- detached homes, townhouses, "
-"and houseboats are all eligible collateral for equity-release financing under this program.\n"
-"QUESTION: My uncle wants to buy a houseboat outright with a normal purchase loan. Can he finance "
-"it with this same institution?\n"
-"WRONG (scope ignored): 'Yes, houseboats are listed as eligible collateral, so he can finance the "
-"purchase.'\n"
-"CORRECT: 'This document only describes eligibility rules for the Senior Equity-Release Program (a "
-"specific loan type for existing homeowners), not for ordinary purchase loans. It does not say whether a "
-"houseboat can be financed with a normal purchase loan at this institution.'\n\n"
 "PRESERVE CONTEXT RULE: if an item in the facts list has more than one attribute (e.g. a price AND a "
 "specific category/use-case label like 'best for X'), your final answer must mention ALL of those "
 "attributes for that item, not just one -- do not strip an item down to just a name and a number if the "
@@ -554,7 +518,7 @@ for i, row in enumerate(rows):
 
     # STAP 1: extractie
     extract_user = f"QUESTION: {q}\n\nDOCUMENT:\n{doc}"
-    extraction = gen(EXTRACT_SYSTEM, extract_user, max_new=MAX_NEW_EXTRACT)
+    extraction = gen(EXTRACT_SYSTEM, extract_user, max_new=MAX_NEW_EXTRACT, max_continuations=1)
 
     # Opschonen: het model schrijft soms een geldig <facts>...</self_described>-blok en
     # blijft daarna doorratelen (herhaalde blokken, "thought"-restjes, zelftwijfel-tekst).
@@ -566,7 +530,7 @@ for i, row in enumerate(rows):
 
     # STAP 2: compositie, ALLEEN op basis van de extractie (niet opnieuw het document)
     compose_user = f"QUESTION: {q}\n\nFACTS LIST (extracted earlier):\n{extraction}"
-    answer = gen(COMPOSE_SYSTEM, compose_user, max_new=MAX_NEW_COMPOSE)
+    answer = gen(COMPOSE_SYSTEM, compose_user, max_new=MAX_NEW_COMPOSE, max_continuations=1)
 
     # Opschonen: kap het antwoord af zodra weggelekte interne procestaal opduikt
     # (een bekend bijverschijnsel van de anti-herhaling-instellingen bij lange antwoorden).
