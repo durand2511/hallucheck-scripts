@@ -13,7 +13,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
-EVAL_SCRIPT = os.environ.get("EVAL_SCRIPT_PATH", "/workspace/hallucheck/scripts/eval_extract_compose_gemma.py")
+EVAL_SCRIPT = os.environ.get("EVAL_SCRIPT_PATH", "/workspace/hallucheck/eval_extract_compose_gemma.py")
 MODEL = os.environ.get("MODEL", "google/gemma-4-31B-it")
 ADAPTER = os.environ.get("ADAPTER_PATH", "/workspace/dpo_gemma31b_grounding-adapter_v2")
 CHUNK_CHARS = int(os.environ.get("CHUNK_CHARS", "6000"))

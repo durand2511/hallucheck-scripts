@@ -5,11 +5,11 @@
 set -e
 cd /workspace
 if [ ! -d hallucheck ]; then
-  git clone https://github.com/durand2511/hallucheck-api.git hallucheck
+  git clone https://github.com/durand2511/hallucheck-scripts.git hallucheck
 fi
 cd hallucheck
 pip install -q fastapi uvicorn[standard] transformers peft bitsandbytes accelerate torch datasets
 # The adapter itself (models/dpo_gemma31b_grounding-adapter_v2/) is gitignored and NOT in this repo --
 # it must already exist at /workspace/dpo_gemma31b_grounding-adapter_v2 on the network volume before
 # this script runs (one-time manual seed step, done once per volume, not per pod boot).
-python scripts/model_server.py
+python model_server.py
