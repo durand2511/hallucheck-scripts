@@ -6,10 +6,24 @@
 # extracted one at a time -- a single GPU has one CUDA context, so "parallel" calls into the same
 # model from multiple threads don't run any faster and risk corrupting shared generation state.
 import os, re, time
+
+# Must happen before `import torch` -- PyTorch reads these at import time to size its internal
+# OpenMP/MKL thread pools. Without a cap, it defaults to os.cpu_count(), which on RunPod reads the
+# HOST's core count (252 on the box this was diagnosed on) rather than the container's actual
+# cgroup CPU quota (~26 cores on that same box). The result wasn't a crash: requests looked
+# "hung" at 0% GPU utilization and 30W power draw (nvidia-smi confirms the GPU sat fully idle)
+# because the CPU-side tokenization/sampling work between GPU kernel launches was thrashing 252
+# threads across ~26 real cores worth of scheduling time, making forward progress glacially slow.
+_TORCH_THREADS = int(os.environ.get("TORCH_NUM_THREADS", "8"))
+os.environ.setdefault("OMP_NUM_THREADS", str(_TORCH_THREADS))
+os.environ.setdefault("MKL_NUM_THREADS", str(_TORCH_THREADS))
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
 import torch
+torch.set_num_threads(_TORCH_THREADS)
+torch.set_num_interop_threads(1)
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
