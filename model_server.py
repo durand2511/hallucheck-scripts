@@ -36,41 +36,58 @@ COMPOSE_SYSTEM = _ns["COMPOSE_SYSTEM"]
 # source document, or flags it as unsupported -- this is the core trust feature of the product:
 # a reviewer must be able to check each claim against the document in one click, since the model
 # itself can still make reasoning errors or hallucinate.
+#
+# Runs per-chunk (same chunks the extraction step already produced) rather than against a single
+# truncated slice of the document -- a long document's supporting passage can land anywhere, and
+# truncating to the first ~8000 chars would silently fail to find citations for claims sourced
+# from later pages. Claims are numbered ONCE in Python before fan-out, so results from independent
+# per-chunk LLM calls can be merged by index instead of relying on the model to re-derive the same
+# sentence split consistently across calls.
 CITE_SYSTEM = (
-    "You are a citation-checking assistant. You will be given a DOCUMENT and an ANSWER that was "
-    "written based on it. Break the ANSWER into its individual claims/sentences. For EACH one, find "
-    "the shortest exact substring from the DOCUMENT that directly supports it, copied character-for-"
-    "character from the DOCUMENT (do not paraphrase the quote). If no supporting passage exists in "
-    "the DOCUMENT, set \"quote\" to null and \"grounded\" to false -- this is exactly how a possible "
-    "hallucination or reasoning error gets caught, so never invent a quote just to fill the field.\n\n"
-    "Reply with ONLY a JSON array, no other text, in this exact shape:\n"
-    '[{"claim": "<sentence from the answer>", "quote": "<exact substring from the document, or null>", "grounded": true|false}]'
+    "You are a citation-checking assistant. You will be given ONE CHUNK of a larger document and a "
+    "numbered list of CLAIMS taken from an answer written about the full document. For each claim, "
+    "check ONLY whether THIS CHUNK contains an exact supporting quote for it -- the supporting text "
+    "may be in a different chunk you don't see, and that is expected and fine. If this chunk supports "
+    "a claim, copy the shortest exact substring from this chunk that proves it, character-for-"
+    "character (never paraphrase). If this chunk does NOT support a claim, simply omit that claim's "
+    "index from your output entirely -- do not guess or invent a quote.\n\n"
+    "Reply with ONLY a JSON array, no other text, containing one entry per claim THIS CHUNK supports:\n"
+    '[{"index": <claim number>, "quote": "<exact substring from this chunk>"}]'
 )
 
 
-def cite_answer(document, answer):
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
-    if not sentences:
-        return []
-    cite_user = f"DOCUMENT:\n{document[:8000]}\n\nANSWER:\n{answer}"
-    raw = gen(CITE_SYSTEM, cite_user, max_new=1200, max_continuations=1)
+def cite_chunk(chunk, numbered_claims):
+    cite_user = f"DOCUMENT CHUNK:\n{chunk}\n\nCLAIMS:\n{numbered_claims}"
+    raw = gen(CITE_SYSTEM, cite_user, max_new=800, max_continuations=1)
     match = re.search(r"\[.*\]", raw, flags=re.DOTALL)
     if not match:
-        return [{"claim": s, "quote": None, "grounded": False} for s in sentences]
+        return {}
     try:
         import json
         parsed = json.loads(match.group(0))
-        return [
-            {
-                "claim": str(item.get("claim", "")),
-                "quote": item.get("quote") or None,
-                "grounded": bool(item.get("quote")) and bool(item.get("grounded", True)),
-            }
+        return {
+            int(item["index"]): str(item["quote"])
             for item in parsed
-            if isinstance(item, dict)
-        ]
+            if isinstance(item, dict) and item.get("quote") and "index" in item
+        }
     except Exception:
-        return [{"claim": s, "quote": None, "grounded": False} for s in sentences]
+        return {}
+
+
+def cite_answer(chunks, answer):
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
+    if not sentences:
+        return []
+    numbered_claims = "\n".join(f"{i}. {s}" for i, s in enumerate(sentences))
+
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(chunks))) as ex:
+        per_chunk_hits = list(ex.map(lambda c: cite_chunk(c, numbered_claims), chunks))
+
+    citations = []
+    for i, s in enumerate(sentences):
+        quote = next((hits[i] for hits in per_chunk_hits if i in hits), None)
+        citations.append({"claim": s, "quote": quote, "grounded": quote is not None})
+    return citations
 
 app = FastAPI()
 _model_lock = threading.Lock()
@@ -164,7 +181,7 @@ def analyze(req: AnalyzeRequest):
 
     compose_user = f"QUESTION: {req.question}\n\nFACTS LIST (extracted earlier):\n{combined_facts}"
     answer = clean_answer(gen(COMPOSE_SYSTEM, compose_user, max_new=700, max_continuations=1))
-    citations = cite_answer(req.document, answer)
+    citations = cite_answer(chunks, answer)
 
     return {
         "answer": answer,
