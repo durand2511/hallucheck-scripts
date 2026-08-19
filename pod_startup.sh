@@ -29,9 +29,13 @@ cd hallucheck
 # LOCAL disk (~/.cache/pip) even though the venv's installed site-packages correctly land on the
 # network volume -- confirmed live: the 20GB container disk filled to 106% and the pod died mid
 # -install. We only ever install once per volume, so there's no reuse benefit to caching anyway.
-if [ ! -d /workspace/venv ]; then
-  echo "=== first boot on this volume: building the venv (one-time cost) ==="
-  rm -rf /workspace/venv # in case a previous attempt died mid-build and left a partial venv
+# A completion marker, not just directory existence -- a venv dir can exist but be incomplete if a
+# previous attempt died mid-install (confirmed live: exactly this happened from the disk-full
+# crash), and checking only `-d /workspace/venv` would then "successfully" activate a broken venv
+# missing torch/transformers/etc. forever, since nothing would ever trigger a rebuild.
+if [ ! -f /workspace/venv/.build-complete ]; then
+  echo "=== venv missing or incomplete: (re)building it (one-time cost) ==="
+  rm -rf /workspace/venv
   python3 -m venv /workspace/venv
   source /workspace/venv/bin/activate
   # Pinned combination confirmed working via a live pod (2026-08-19):
@@ -47,6 +51,7 @@ if [ ! -d /workspace/venv ]; then
   pip install -q --no-cache-dir -U pip
   pip install -q --no-cache-dir -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
   pip install -q --no-cache-dir fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
+  touch /workspace/venv/.build-complete
 else
   echo "=== reusing existing venv from the volume, no reinstall needed ==="
   source /workspace/venv/bin/activate
