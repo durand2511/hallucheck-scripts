@@ -20,18 +20,31 @@ else
   (cd hallucheck && git pull) || true
 fi
 cd hallucheck
-# Pinned combination confirmed working via a live pod (2026-08-19):
-# - google/gemma-4-31B-it's config declares model_type "gemma4", which only got added to
-#   transformers in a release that also hard-requires PyTorch >= 2.5 -- the runpod/pytorch base
-#   image ships torch 2.4.1, so an old-enough transformers to run on 2.4.1 doesn't recognize
-#   "gemma4" at all (KeyError: 'gemma4'), and a new-enough transformers to recognize it silently
-#   disables its own PyTorch integration on 2.4.1 (NameError: name 'torch' is not defined, deep in
-#   transformers.integrations.tensor_parallel). The only way through is upgrading torch itself.
-# - Upgrading only torch breaks the base image's preinstalled torchvision/torchaudio (built against
-#   2.4.1) with "RuntimeError: operator torchvision::nms does not exist" the moment transformers
-#   pulls in an unrelated image-processing module -- torchvision has to move in lockstep with torch.
-pip install -q -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-pip install -q fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
+# Installed packages normally live on the pod's OWN disk, not the network volume -- meaning every
+# single fresh pod had to re-download torch/torchvision/torchaudio (multi-GB) from scratch before
+# it could even start loading the model, easily blowing past the app's 5-minute cold-start budget
+# on its own. Fix: a venv ON the volume, built once and reused by every future pod.
+if [ ! -d /workspace/venv ]; then
+  echo "=== first boot on this volume: building the venv (one-time cost) ==="
+  python3 -m venv /workspace/venv
+  source /workspace/venv/bin/activate
+  # Pinned combination confirmed working via a live pod (2026-08-19):
+  # - google/gemma-4-31B-it's config declares model_type "gemma4", which only got added to
+  #   transformers in a release that also hard-requires PyTorch >= 2.5 -- the runpod/pytorch base
+  #   image ships torch 2.4.1, so an old-enough transformers to run on 2.4.1 doesn't recognize
+  #   "gemma4" at all (KeyError: 'gemma4'), and a new-enough transformers to recognize it silently
+  #   disables its own PyTorch integration on 2.4.1 (NameError: name 'torch' is not defined, deep
+  #   in transformers.integrations.tensor_parallel). The only way through is upgrading torch itself.
+  # - Upgrading only torch breaks torchvision/torchaudio (built against 2.4.1) with "RuntimeError:
+  #   operator torchvision::nms does not exist" the moment transformers pulls in an unrelated
+  #   image-processing module -- torchvision has to move in lockstep with torch.
+  pip install -q -U pip
+  pip install -q -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+  pip install -q fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
+else
+  echo "=== reusing existing venv from the volume, no reinstall needed ==="
+  source /workspace/venv/bin/activate
+fi
 # The adapter itself (models/dpo_gemma31b_grounding-adapter_v2/) is gitignored and NOT in this repo --
 # it must already exist at /workspace/dpo_gemma31b_grounding-adapter_v2 on the network volume before
 # this script runs (one-time manual seed step, done once per volume, not per pod boot).
