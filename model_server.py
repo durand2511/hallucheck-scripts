@@ -3,9 +3,9 @@
 # compose pipeline used throughout the FACTS-860 eval work (scripts/eval_extract_compose_gemma.py)
 # as a long-lived HTTP endpoint, so a RunPod pod loads the model ONCE and serves many documents
 # instead of a cold model-load per request. Large ("complex") documents get split into chunks and
-# extracted in parallel (one agent call per chunk), then composed together into one answer.
-import os, re, time, threading
-from concurrent.futures import ThreadPoolExecutor
+# extracted one at a time -- a single GPU has one CUDA context, so "parallel" calls into the same
+# model from multiple threads don't run any faster and risk corrupting shared generation state.
+import os, re, time
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
@@ -17,7 +17,6 @@ EVAL_SCRIPT = os.environ.get("EVAL_SCRIPT_PATH", "/workspace/hallucheck/eval_ext
 MODEL = os.environ.get("MODEL", "google/gemma-4-31B-it")
 ADAPTER = os.environ.get("ADAPTER_PATH", "/workspace/dpo_gemma31b_grounding-adapter_v2")
 CHUNK_CHARS = int(os.environ.get("CHUNK_CHARS", "6000"))
-MAX_WORKERS = int(os.environ.get("EXTRACT_WORKERS", "4"))
 
 # Pull the exact, already-tested EXTRACT_SYSTEM / COMPOSE_SYSTEM prompt strings straight from the
 # finalized eval script instead of copy-pasting them here, so this server can never silently drift
@@ -80,8 +79,7 @@ def cite_answer(chunks, answer):
         return []
     numbered_claims = "\n".join(f"{i}. {s}" for i, s in enumerate(sentences))
 
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(chunks))) as ex:
-        per_chunk_hits = list(ex.map(lambda c: cite_chunk(c, numbered_claims), chunks))
+    per_chunk_hits = [cite_chunk(c, numbered_claims) for c in chunks]
 
     citations = []
     for i, s in enumerate(sentences):
@@ -90,7 +88,6 @@ def cite_answer(chunks, answer):
     return citations
 
 app = FastAPI()
-_model_lock = threading.Lock()
 _state = {"ready": False, "model": None, "tok": None, "stop_ids": None}
 
 
@@ -175,8 +172,7 @@ def health():
 def analyze(req: AnalyzeRequest):
     t0 = time.time()
     chunks = split_into_chunks(req.document)
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(chunks))) as ex:
-        extractions = list(ex.map(lambda c: extract_chunk(req.question, c), chunks))
+    extractions = [extract_chunk(req.question, c) for c in chunks]
     combined_facts = "\n\n".join(f"[Deel {i+1}/{len(chunks)}]\n{e}" for i, e in enumerate(extractions))
 
     compose_user = f"QUESTION: {req.question}\n\nFACTS LIST (extracted earlier):\n{combined_facts}"
