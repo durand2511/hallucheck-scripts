@@ -20,11 +20,18 @@ else
   (cd hallucheck && git pull) || true
 fi
 cd hallucheck
-# Pinned: unpinned "latest" transformers now requires PyTorch >= 2.5, but the runpod/pytorch base
-# image ships 2.4.1 -- installing latest transformers silently disables its own PyTorch integration
-# and crashes deep inside transformers.integrations.tensor_parallel with "NameError: name 'torch'
-# is not defined" the moment peft imports it. Confirmed working combination via a live pod (2026-08-19).
-pip install -q fastapi uvicorn[standard] "transformers==4.46.3" "peft==0.13.2" "accelerate==1.0.1" bitsandbytes datasets
+# Pinned combination confirmed working via a live pod (2026-08-19):
+# - google/gemma-4-31B-it's config declares model_type "gemma4", which only got added to
+#   transformers in a release that also hard-requires PyTorch >= 2.5 -- the runpod/pytorch base
+#   image ships torch 2.4.1, so an old-enough transformers to run on 2.4.1 doesn't recognize
+#   "gemma4" at all (KeyError: 'gemma4'), and a new-enough transformers to recognize it silently
+#   disables its own PyTorch integration on 2.4.1 (NameError: name 'torch' is not defined, deep in
+#   transformers.integrations.tensor_parallel). The only way through is upgrading torch itself.
+# - Upgrading only torch breaks the base image's preinstalled torchvision/torchaudio (built against
+#   2.4.1) with "RuntimeError: operator torchvision::nms does not exist" the moment transformers
+#   pulls in an unrelated image-processing module -- torchvision has to move in lockstep with torch.
+pip install -q -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install -q fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
 # The adapter itself (models/dpo_gemma31b_grounding-adapter_v2/) is gitignored and NOT in this repo --
 # it must already exist at /workspace/dpo_gemma31b_grounding-adapter_v2 on the network volume before
 # this script runs (one-time manual seed step, done once per volume, not per pod boot).
