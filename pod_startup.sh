@@ -24,8 +24,14 @@ cd hallucheck
 # single fresh pod had to re-download torch/torchvision/torchaudio (multi-GB) from scratch before
 # it could even start loading the model, easily blowing past the app's 5-minute cold-start budget
 # on its own. Fix: a venv ON the volume, built once and reused by every future pod.
+#
+# --no-cache-dir is required, not optional: pip's download/build cache defaults to the pod's own
+# LOCAL disk (~/.cache/pip) even though the venv's installed site-packages correctly land on the
+# network volume -- confirmed live: the 20GB container disk filled to 106% and the pod died mid
+# -install. We only ever install once per volume, so there's no reuse benefit to caching anyway.
 if [ ! -d /workspace/venv ]; then
   echo "=== first boot on this volume: building the venv (one-time cost) ==="
+  rm -rf /workspace/venv # in case a previous attempt died mid-build and left a partial venv
   python3 -m venv /workspace/venv
   source /workspace/venv/bin/activate
   # Pinned combination confirmed working via a live pod (2026-08-19):
@@ -38,9 +44,9 @@ if [ ! -d /workspace/venv ]; then
   # - Upgrading only torch breaks torchvision/torchaudio (built against 2.4.1) with "RuntimeError:
   #   operator torchvision::nms does not exist" the moment transformers pulls in an unrelated
   #   image-processing module -- torchvision has to move in lockstep with torch.
-  pip install -q -U pip
-  pip install -q -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-  pip install -q fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
+  pip install -q --no-cache-dir -U pip
+  pip install -q --no-cache-dir -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+  pip install -q --no-cache-dir fastapi uvicorn[standard] -U transformers peft accelerate bitsandbytes datasets
 else
   echo "=== reusing existing venv from the volume, no reinstall needed ==="
   source /workspace/venv/bin/activate
