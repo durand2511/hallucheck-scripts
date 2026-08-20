@@ -13,6 +13,17 @@ jobs:
       contents: read
       packages: write
     steps:
+      # The default ubuntu-latest runner only has ~14GB free -- torch/torchvision/torchaudio
+      # cu124 wheels plus the CUDA devel base image blow well past that ("No space left on
+      # device", confirmed live on the first build attempt). Clearing preinstalled software this
+      # runner ships with by default (Android SDK, .NET, GHC, etc, none of which this build
+      # needs) frees up ~25-30GB before the build even starts.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
       - uses: actions/checkout@v4
 
       # Adapter weights (~200MB) live as GitHub Release assets, not in git history -- one file
