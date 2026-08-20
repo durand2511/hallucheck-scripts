@@ -45,10 +45,19 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # Tagged with the commit SHA, not just :latest -- confirmed live: a worker kept running an
+      # old broken build even after a fixed image was pushed to :latest, because it had already
+      # cached that mutable tag locally and never re-pulled. A SHA tag is a genuinely new
+      # reference every build, so there's no stale-cache ambiguity about which image is running.
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: serverless/Dockerfile
           push: true
-          tags: ghcr.io/durand2511/hallucheck-serverless:latest
+          tags: |
+            ghcr.io/durand2511/hallucheck-serverless:latest
+            ghcr.io/durand2511/hallucheck-serverless:${{ github.sha }}
+
+      - name: Print the SHA-tagged image reference
+        run: echo "IMAGE=ghcr.io/durand2511/hallucheck-serverless:${{ github.sha }}"
