@@ -12,9 +12,13 @@ WORKDIR /app
 # transformers version that DOES know it hard-requires torch>=2.5 -- diagnosed live earlier this
 # project, see model_server.py's history. torchvision/torchaudio must move in lockstep with torch
 # or unrelated transformers image-processing imports break with a torchvision::nms error.
+# datasets is imported by eval_extract_compose_gemma.py's top section (execed by handler.py to
+# pull the frozen EXTRACT_SYSTEM/COMPOSE_SYSTEM prompts) -- missing it crashed every worker
+# immediately with ModuleNotFoundError, confirmed live via RunPod's console logs. pod_startup.sh
+# never hit this because the Pods path only ran model_server.py itself, which doesn't need it.
 RUN pip install --no-cache-dir -U pip && \
     pip install --no-cache-dir -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
-    pip install --no-cache-dir -U transformers peft accelerate bitsandbytes runpod
+    pip install --no-cache-dir -U transformers peft accelerate bitsandbytes datasets runpod
 
 # Build context is the hallucheck-scripts repo ROOT (see workflow file), not this directory --
 # eval_extract_compose_gemma.py lives at the repo root, one level up from here.
