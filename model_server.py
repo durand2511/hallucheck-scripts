@@ -142,13 +142,24 @@ def gen(system, user, max_new, max_continuations=1):
 
 
 def clean_answer(answer):
+    # COMPOSE_SYSTEM's own documented output format is "REASONING: ... FINAL ANSWER: ...", but
+    # nothing was ever stripping the REASONING scratchpad before this text got shown to users or
+    # fed into the citation-matching pass -- confirmed live (via the serverless handler, which
+    # shares this exact function): real answers had a leaked "REASONING:" block and a duplicated
+    # "**Final Answer:**" section in front of the actual prose, which also broke every citation
+    # match since the "sentences" being matched were really reasoning-list bullets. Takes the LAST
+    # marker match specifically, since a continuation round can repeat it.
+    _matches = list(re.finditer(r"\*{0,2}final answer\*{0,2}:?", answer, flags=re.IGNORECASE))
+    if _matches:
+        answer = answer[_matches[-1].end():].lstrip(" :\n")
+
     _leak = re.search(r"\bthought\b|\bwait\b[*_]{0,2}[,.\-—]|\blet me restart\b", answer, flags=re.IGNORECASE)
     if _leak and _leak.start() > 30:
         answer = answer[:_leak.start()].rstrip()
     _degenerate = re.search(r"(.{2,80}?)\1{3,}", answer, flags=re.DOTALL)
     if _degenerate and _degenerate.start() > 30:
         answer = answer[:_degenerate.start()].rstrip()
-    return answer
+    return answer.strip()
 
 
 def split_into_chunks(text, size=CHUNK_CHARS):
