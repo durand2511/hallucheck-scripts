@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir -U pip && \
     pip install --no-cache-dir -U torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 && \
     pip install --no-cache-dir -U transformers peft accelerate bitsandbytes runpod
 
+# Build context is the hallucheck-scripts repo ROOT (see workflow file), not this directory --
+# eval_extract_compose_gemma.py lives at the repo root, one level up from here.
+#
 # eval_extract_compose_gemma.py supplies the frozen, already-validated EXTRACT_SYSTEM/
 # COMPOSE_SYSTEM prompts (handler.py execs its top portion) -- kept as a single source of truth
 # instead of copy-pasting the prompts, so this can never silently drift from what was tested
@@ -23,9 +26,9 @@ RUN pip install --no-cache-dir -U pip && \
 COPY eval_extract_compose_gemma.py /app/eval_extract_compose_gemma.py
 # Adapter weights (~200MB) are small enough to bake straight into the image -- downloaded from
 # the private hallucheck-scripts GitHub Release by the CI workflow before this build runs (see
-# workflow file), landing in ./adapter relative to this Dockerfile.
-COPY adapter/ /app/adapter/
-COPY handler.py /app/handler.py
+# workflow file), landing in serverless/adapter/.
+COPY serverless/adapter/ /app/adapter/
+COPY serverless/handler.py /app/handler.py
 
 ENV EVAL_SCRIPT_PATH=/app/eval_extract_compose_gemma.py
 ENV ADAPTER_PATH=/app/adapter

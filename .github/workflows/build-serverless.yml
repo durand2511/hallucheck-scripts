@@ -37,6 +37,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: serverless
+          context: .
+          file: serverless/Dockerfile
           push: true
           tags: ghcr.io/durand2511/hallucheck-serverless:latest
