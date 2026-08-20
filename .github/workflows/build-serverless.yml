@@ -1,0 +1,42 @@
+name: Build serverless image
+
+on:
+  push:
+    branches: [main]
+    paths: [serverless/**]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Adapter weights (~200MB) live as GitHub Release assets, not in git history -- one file
+      # (adapter_model.safetensors) is well over GitHub's 100MB regular-push limit. Downloaded
+      # here into serverless/adapter/ so the Dockerfile's `COPY adapter/ /app/adapter/` finds them.
+      - name: Download adapter release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p serverless/adapter
+          gh release download adapter-v2 --repo durand2511/hallucheck-scripts --dir serverless/adapter --clobber
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: serverless
+          push: true
+          tags: ghcr.io/durand2511/hallucheck-serverless:latest
